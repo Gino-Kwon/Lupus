@@ -535,7 +535,19 @@ library(pheatmap)
 
 decimal <- 5 #size of permutation (=P-value decimal)
 # Input information of the Index
-ind <- table_disease_index #must includes variables; don=Donor,typ=Celltype,stg=Stage or Index
+ind <- index_labs #must includes variables; don=Donor,typ=Celltype,stg=Stage or Index
+colnames(ind) <- c('index','old_lab','index_type','typ','hrs','sample_label')
+ind$don <- sapply(1:nrow(ind), function(x) if(ind$index_type[x] == 'ESSDAI') {'pSS'} else if(ind$index_type[x] == 'SLEDAI') {'SLE'} else {'HD'}	)
+ind$stg <- sapply(1:nrow(ind), function(x) 
+	if( (ind$don=='pSS') & (ind$index >= 1) & (ind$index <= 3) ) {'Low'
+	} else if( (ind$don=='pSS') & (ind$index >= 4) & (ind$index <= 7) ) {'Mid'
+	} else if( (ind$don=='pSS') & (ind$index >= 8) ) {'High'
+	} else if( (ind$don=='SLE') & (ind$index >= 1) & (ind$index <= 3) ) {'Low'
+	} else if( (ind$don=='SLE') & (ind$index >= 4) & (ind$index <= 7) ) {'Mid'
+	} else if( (ind$don=='SLE') & (ind$index >= 8) ) {'High'
+	} else { 'NA'
+	}
+)
 # Input value of the Gene Expression
 gmt <- anz_00 #Numeric table of Expression
 # Input genesets(=perturbation)
