@@ -1,0 +1,406 @@
+---
+title: "CellPhoneDB of LUPUS Data (Samplewise), aCD3-stimulated"
+date: "02/01/2022"
+author: "Lisa M. Steinheuer"
+output:
+bookdown::html_document2:
+toc: true
+theme: united
+---
+```{r message = F, warning = F}
+library(tidyverse)
+library(circlize)
+library(reshape2)
+library(magrittr)
+library(ggnewscale)
+library(rstatix)
+
+source('.../HelperScript_CellPhoneDB.R')
+
+```
+```{r}
+load('.../analyze_set_h18.Rdata')
+t_gmt <- t(gmt)
+cytokine_list <- read.delim('.../cytokine_gene_list.txt')
+cyto_hgnc <- as.factor(cytokine_list$EntrezGene.Symbol..Human.)
+cyto_hgnc <- droplevels(cyto_hgnc)
+cyto_hgnc <- cyto_hgnc[cyto_hgnc != ""]
+cyto_hgnc <- gsub(cyto_hgnc, pattern = " ", replacement = "")
+```
+
+
+```{r data_prep}
+# Donors which were not included due to incompleteness of data set
+to_remove <- c("HD_10", "HD_13", "pSS_08", "pSS_12", "SLE_05", "SLE_07", "SLE_09", "SLE_13", "SLE_18")
+
+df_gmt <- melt(gmt) %>%
+  set_colnames(c('Gene', 'Sample_ID', 'ExpressionValue')) %>%
+  dplyr::mutate(Condition = factor(gsub(Sample_ID, pattern = '_\\d+$', replacement = ''))) %>%
+  dplyr::mutate(Disease = factor(gsub(".*_", "", Condition))) %>%
+  dplyr::mutate(CellType = factor(gsub("\\_.*", "", Condition))) %>%
+  dplyr::mutate(Donor = factor(str_sub(Sample_ID, -2, -1))) %>%
+  dplyr::mutate(Donor = paste0(Disease, "_", Donor)) %>%
+  filter(!(Donor %in% to_remove)) %>%
+  dplyr::mutate(IsCyto = Gene %in% cyto_hgnc)
+
+str(df_gmt)
+gmt <- gmt[, colnames(gmt) %in% unique(df_gmt$Sample_ID)]
+t_gmt <- t(gmt[, colnames(gmt) %in% unique(df_gmt$Sample_ID)])
+```
+
+Run the ligand-receptor extraction process per donor
+```{r run_CellPhone_perSample_upregulation, message = F, warning = F, results = 'hide'}
+run_CellPhoneDB_SampleWise()
+
+```
+
+Collect the data and read in the individual files
+
+```{r collectData_up}
+all_files <- list.files(path = '.../Data/', pattern = 'M_001_CellPhoneDB_ExprData_*')
+list_results <- list()
+for (i in 1:length(all_files)) {
+  a <- read.csv(paste0('.../Data/', all_files[i]), row.names = 1)
+  list_results[[i]] <- a
+}
+
+names(list_results) <- gsub(all_files, pattern = 'M_001_CellPhoneDB_ExprData_|.csv', replacement = '')
+```
+
+```{r data_tweak_up, message = F, warning = F, results = 'hide'}
+com_df <- melt(list_results) %>%
+  set_colnames(c('Ligand', 'Receptor', 'Condition')) %>%
+  dplyr::mutate(Ligand = factor(Ligand)) %>%
+  dplyr::mutate(Receptor = factor(Receptor)) %>%
+  dplyr::mutate(Condition = factor(Condition)) %>%
+  dplyr::mutate(Sender_cell = gsub(Condition, pattern = '\\-in-.*', replacement = '')) %>%
+  dplyr::mutate(Disease_state = gsub(Sender_cell, pattern = '\\_[0-9]*$', replacement = '')) %>%
+  dplyr::mutate(Disease_state = gsub(Disease_state, pattern = '.*_', replacement = '')) %>%
+  dplyr::mutate(Sender_cell = factor(gsub(Sender_cell, pattern = '\\_.*', replacement = ''))) %>%
+
+  dplyr::mutate(Receiver_cell = gsub(Condition, pattern = '.*-in-', replacement = '')) %>%
+  dplyr::mutate(Receiver_cell = factor(gsub(Receiver_cell, pattern = '\\_.*', replacement = '')))
+
+
+```
+
+# Overview entries across disease states
+
+
+
+```{r}
+# Script used to generate Figure 4C
+factors_ligands <- c('IL1B', 'IL6', 'IL7', 'IL10', 'IL15', 'IL22', 'IL34', 'LIF', 'CCL4', 'CXCL2', 'CXCL3', 'CXCL5', 'CXCL6', 'CXCL9', 'FGF2', 'CSF1', 'CSF2', 'CSF3')
+factors_receptors <- c('IL6 receptor', 'IL7 receptor', 'IL10 receptor', 'IL15 receptor', 'IL22 receptor', 'LIFR', 'EPOR', 'CXCR1', 'CXCR2', 'CXCR3', "CNR2", 'FGRL1', 'CSF1R', 'ADRB2')
+p <- com_df %>%
+  mutate(Sender_cell = factor(Sender_cell, levels = c('CD4', 'CD8', 'CD16', 'CD19'))) %>%
+  mutate(Receiver_cell = factor(Receiver_cell, levels = c('CD4', 'CD8', 'CD16', 'CD19'))) %>%
+  filter(Disease_state == 'SLE' | Disease_state == 'HD') %>%
+  filter(Sender_cell == 'CD8') %>%
+  filter(Receiver_cell == 'CD19') %>%
+  add_count(Ligand, Receptor, Disease_state, Sender_cell, Receiver_cell) %>%
+  mutate(Interaction = paste0(Ligand, '_', Receptor)) %>%
+  mutate(Fraction = ifelse(Disease_state == "HD",  n / 13 * 100, ifelse (Disease_state == "pSS", n/ 5 *100,  n/ 9 *100))) %>%
+  filter(Ligand %in% factors_ligands) %>%
+  filter(Receptor %in% factors_receptors) %>%
+  filter(n > 0) %>%
+  droplevels() %>%
+  mutate(Ligand = factor(Ligand, levels = factors_ligands)) %>%
+  mutate(Receptor = factor(Receptor, levels = factors_receptors)) %>%
+  ggplot(aes(Receptor, Ligand, fill = Fraction)) +
+  theme(panel.background = element_blank(), panel.border = element_rect(color = "black", fill = NA)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient("Fraction(%)", high = '#454545', low = '#ECECEC', na.value = 'white', limits = c(0,100)) +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.key.size = unit(0.25, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+  facet_grid(rows = vars(Sender_cell), cols = vars(Disease_state))
+ggsave(filename = paste0(results_dir, 'P_Fig01_Counts_SLE_HD.pdf'), plot = p, device = 'pdf', height = 2.4, width = 3.7)
+
+p
+```
+
+
+```{r plot_heatmap_up_sle_hd, fig.height = 8, fig.width = 20}
+
+# Script used to plot Figure 4D (SLE part)
+p <- full_run_sampleWise(disease_contrast = c('SLE', 'HD'))
+ggsave(filename = paste0(results_dir, 'P_Fig01_SLE_HD_Fischers.pdf'), plot = p, device = 'pdf', height = 3.5, width = 5)
+
+#manual changes for the paper
+load('/home/lisbet/Data/2021_GinoRoche/Data/DF_stat_CellPhoneDB_output.RData')
+results_df <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA))
+#  drop_na()
+
+what_2_keep <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA)) %>%
+  drop_na() %>%
+  pull(Interaction)
+
+
+order_plot <- c("IL6_IL6 receptor", "CNTF-1R_CLCF1", "SCF_KIT", "BMP5_ACVR1_BMPR2", "BMP2_BMPR1A_BMPR2", "BMP2_BMPR1B_BMPR2", "BMP10_ACVL1_BMPR2", "CCL4_CNR2", "GMCSFR_CSF2", "FLT1 complex_VEGFB", "GDF2_ACVL1_BMPR2", "GDF5_BMPR1A_BMPR2", "GDF5_BMPR1B_BMPR2", "GDF6_BMPR1A_BMPR2", "GDF9_TGFR_BMPR2", "ADIPO_CNR2", "ESAM_ESAM")
+
+
+#plot for sign. lower signals
+# -----------------------------------------------------------------------------------------------
+p <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'less') %>%
+  ggplot(aes(Receiver, Interaction, fill = `pvalue filtered`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_rect(color = "black", fill = NA),
+        legend.position = "none") +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  #labs(subtitle = paste('CCC signals sig. different in ', which_disease, 'compared to healthy'), caption = 'Fishers test \n If adjusted p-value > 0.1 then not visualized') +
+  facet_grid(rows = vars(Sender), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'greater') %>%
+  drop_na()
+
+# then add to the previous object
+
+q <- p +
+  new_scale_fill() +
+  geom_tile(aes(fct_inorder(greater_df$Receiver), Interaction, fill = `pvalue filtered`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(factor(Sender))) +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "none")
+
+
+ggsave(filename = paste0(results_dir, 'P_Fig01_SLE_HD_Fischers_paper.pdf'), plot = q, device = 'pdf', height = 2.4, width = 2.4)
+
+```
+
+```{r plot_heatmap_up_sle_hd, fig.height = 8, fig.width = 20}
+
+# Script used to plot Supplementary Figure 4B (SLE part)
+p <- full_run_sampleWise(disease_contrast = c('SLE', 'HD'))
+ggsave(filename = paste0(results_dir, 'P_Fig01_SLE_HD_Fischers.pdf'), plot = p, device = 'pdf', height = 3.5, width = 5)
+
+#manual changes for the paper
+load('.../Data/DF_stat_CellPhoneDB_output.RData')
+results_df <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA))
+#  drop_na()
+
+what_2_keep <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA)) %>%
+  drop_na() %>%
+  pull(Interaction)
+
+order_plot <- c("IL6_IL6 receptor", "CNTF-1R_CLCF1", "SCF_KIT", "BMP5_ACVR1_BMPR2", "BMP6_ACVR1_BMPR2", "BMP7_ACVR1_BMPR2", "BMP8A_ACVR1_BMPR2", "BMP2_BMPR1A_BMPR2", "BMP2_BMPR1B_BMPR2",
+                "BMP4_BMPR1A_BMPR2", "BMP4_BMPR1B_BMPR2", "BMP5_BMPR1A_BMPR2", "BMP5_BMPR1B_BMPR2", "BMP6_BMPR1A_BMPR2", "BMP6_BMPR1B_BMPR2",
+                "BMP7_BMPR1A_BMPR2", "BMP7_BMPR1B_BMPR2", "BMP8A_BMPR1A_BMPR2", "BMP8A_BMPR1B_BMPR2", "BMP10_ACVL1_BMPR2", "BMP15_BMPR1B_BMPR2", "BMR1A_BMPR1B_BMPR2", "CCL4_CNR2", "GMCSFR_CSF2", "FLT1 complex_VEGFB", "GDF2_ACVL1_BMPR2", "GDF5_BMPR1A_BMPR2", "GDF5_BMPR1B_BMPR2", "GDF6_BMPR1A_BMPR2", "GDF6_BMPR1B_BMPR2", "GDF7_BMPR1A_BMPR2", "GDF7_BMPR1B_BMPR2", "GDF9_TGFR_BMPR2", "ADIPO_CNR2", "ESAM_ESAM")
+
+
+#plot for sign. lower signals
+# -----------------------------------------------------------------------------------------------
+p <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'less') %>%
+  ggplot(aes(Receiver, Interaction, fill = `pvalue filtered`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_rect(color = "black", fill = NA),
+        legend.position = "none") +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(Sender), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'greater') %>%
+  drop_na()
+
+# then add to the previous object
+
+q <- p +
+  new_scale_fill() +
+  geom_tile(aes(fct_inorder(greater_df$Receiver), Interaction, fill = `pvalue filtered`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(factor(Sender))) +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "none")
+
+
+ggsave(filename = paste0(results_dir, 'P_Fig01_SLE_HD_Fischers_paper_supp.pdf'), plot = q, device = 'pdf', height = 2.4, width = 5)
+```
+
+```{r plot_heatmap_up_pSS_hd,   fig.height = 8, fig.width = 20}
+
+# Script used to plot Figure 4D (pSS part)
+p <- full_run_sampleWise(disease_contrast = c('pSS', 'HD'))
+ggsave(filename = paste0(results_dir, 'P_Fig01_pSS_HD_Fischers.pdf'), plot = p, device = 'pdf', height = 3, width = 5)
+
+
+load('.../Data/DF_stat_CellPhoneDB_output.RData')
+results_df <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA))
+#  drop_na()
+
+what_2_keep <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA)) %>%
+  drop_na() %>%
+  pull(Interaction)
+
+order_plot <- c("IL7_IL7 receptor", "IL15_IL15 receptor", "IL22_IL22 receptor", "SCF_KIT", "OSTP_CCR8", "TNR14_BTLA", "CCL1_CCR8", "CCL4_CCR8", "CCL4_CNR2", "CCL16_CCR8", "CCL18_CCR8", "CCL19_CCRL2", "CXCL9_CXCR3", "SDF1_CXCR3", "PLF4_CXCR3", "RSPO1_LGR6", "RSPO2_LGR6", "ADIPO_CNR2")
+
+
+#plot for sign. lower signals
+# -----------------------------------------------------------------------------------------------
+p <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'less') %>%
+  ggplot(aes(Receiver, Interaction, fill = `pvalue filtered`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_rect(color = "black", fill = NA)) +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), , breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  #labs(subtitle = paste('CCC signals sig. different in ', which_disease, 'compared to healthy'), caption = 'Fishers test \n If adjusted p-value > 0.1 then not visualized') +
+  facet_grid(rows = vars(Sender), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'greater') %>%
+  drop_na()
+
+# then add to the previous object
+
+q <- p +
+  new_scale_fill() +
+  geom_tile(aes(fct_inorder(greater_df$Receiver), Interaction, fill = `pvalue filtered`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(factor(Sender))) +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "none")
+
+
+
+ggsave(filename = paste0(results_dir, 'P_Fig01_pSS_HD_Fischers_paper.pdf'), plot = q, device = 'pdf', height = 2.15, width = 2.6)
+
+```
+
+```{r plot_heatmap_up_pSS_hd,   fig.height = 8, fig.width = 20}
+
+# Script used to plot Supplementary Figure 4B (pSS part)
+p <- full_run_sampleWise(disease_contrast = c('pSS', 'HD'))
+ggsave(filename = paste0(results_dir, 'P_Fig01_pSS_HD_Fischers.pdf'), plot = p, device = 'pdf', height = 3, width = 5)
+
+
+load('.../Data/DF_stat_CellPhoneDB_output.RData')
+results_df <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA))
+#  drop_na()
+
+what_2_keep <- results_df %>%
+  dplyr::mutate(Receiver = factor(results_df$Receiver, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Sender = factor(results_df$Sender, levels = c('CD4', 'CD8'))) %>%
+  mutate('pvalue filtered' = ifelse(adj.pvalue <= 0.1, adj.pvalue, NA)) %>%
+  drop_na() %>%
+  pull(Interaction)
+
+order_plot <- c("IL7_IL7 receptor", "IL15_IL15 receptor", "IL22_IL22 receptor", "SCF_KIT", "OSTP_CCR8", "TNR14_BTLA", "CCL1_CCR8", "CCL4_CCR8", "CCL4_CNR2", "CCL16_CCR8", "CCL18_CCR8", "CCL19_CCRL2", "CCL19_CXCR3", "CCL20_CXCR3", "CXCL9_CXCR3", "CXL10_CXCR3", "CXL11_CXCR3", "SDF1_CXCR3", "PLF4_CXCR3", "RSPO1_LGR6", "RSPO2_LGR6", "RSPO3_LGR6", "RSPO4_LGR6", "ADIPO_CNR2")
+
+
+#plot for sign. lower signals
+# -----------------------------------------------------------------------------------------------
+p <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'less') %>%
+  ggplot(aes(Receiver, Interaction, fill = `pvalue filtered`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_rect(color = "black", fill = NA)) +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), , breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(Sender), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- results_df %>%
+  dplyr::mutate(Interaction = factor(Interaction)) %>%
+  dplyr::mutate(direction = factor(results_df$direction)) %>%
+  dplyr::mutate(Interaction = factor(Interaction, levels = order_plot)) %>%
+  filter(Interaction %in% order_plot) %>%
+  filter(direction == 'greater') %>%
+  drop_na()
+
+# then add to the previous object
+
+q <- p +
+  new_scale_fill() +
+  geom_tile(aes(fct_inorder(greater_df$Receiver), Interaction, fill = `pvalue filtered`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(factor(Sender))) +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "none")
+
+
+ggsave(filename = paste0(results_dir, 'P_Fig01_pSS_HD_Fischers_paper_supp.pdf'), plot = q, device = 'pdf', height = 2.09, width = 3.5)
+```
+
+```{r message = F, warning = F, results = 'hide'}
+file.remove(paste0(rdata_dir, all_files))
+```
+

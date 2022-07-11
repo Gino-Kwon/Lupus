@@ -1,0 +1,379 @@
+---
+title: "CytoSig analysis of LUPUS Data"
+date: "02/01/2022"
+author: "Lisa M. Steinheuer"
+output:
+bookdown::html_document2:
+toc: true
+theme: united
+---
+```{r message = F, warning = F}
+library(tidyverse)
+library(magrittr)
+library(reshape2)
+library(rstatix)
+```
+
+Each data set is read in and the Zscore is extracted and merged together.
+The Zscore should be comparable across runs sinc eit is normalized by the average ridge coefficient.
+```{r warning = F}
+files_dir <- '.../Data/2021_GinoRoche/Data/'
+all_files <- list.files(files_dir, pattern = 'M_01_CytoSig_')
+names_files <- gsub(all_files, pattern = 'M_01_CytoSig_|.csv', replacement = '')
+# indicate which run
+list_results <- list()
+
+for (i in 1:length(all_files)) {
+  # catch the csv file
+  # important: receptors are in ROWS and ligands in COLUMNS
+  cytosig <- read.csv(paste0(files_dir, all_files[i]), row.names = 1) %>%
+    as.matrix() %>%
+    melt() %>%
+    set_colnames(c('Sample', 'Gene', 'Activity'))
+  # adjust the names of rows and cols which is used for merging by the ligands later
+  list_results[[i]] <- cytosig
+}
+# replace all NA with ZEROS
+# combined_matrix[is.na(combined_matrix)] <- 0
+# combined_matrix <- as.matrix(combined_matrix)
+# indicate the ligands
+# this was done since otherwise the order was strange in circos plot
+names(list_results) <- names_files
+
+combined_matrix <- melt(list_results)
+```
+
+Actually do the visualization.
+
+```{r, fig.width = 35, fig.height = 15}
+
+# set factor levels according to custum ordering
+combined_matrix_plot <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate(Condition = factor(Condition,
+                            levels = c("CD4_HD", "CD4_pSS", "CD4_SLE", "CD8_HD", "CD8_pSS", "CD8_SLE", "CD16_HD", "CD16_pSS", "CD16_SLE", "CD19_HD", "CD19_pSS", "CD19_SLE"))) %>%
+  mutate(Condition = factor(gsub(pattern = '_', replacement = ' \n ', Condition),
+                            levels = c("CD4 \n HD", "CD4 \n pSS", "CD4 \n SLE", "CD8 \n HD", "CD8 \n pSS", "CD8 \n SLE", "CD16 \n HD", "CD16 \n pSS", "CD16 \n SLE", "CD19 \n HD", "CD19 \n pSS", "CD19 \n SLE"))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'Activin.A')))
+combined_matrix_plot$Gene <- revalue(combined_matrix_plot$Gene, c('Activin.A' = 'INHBA'))
+
+# code used for Figure4E
+
+p <- combined_matrix_plot %>%
+  filter(Gene %in% c("IFN1", "IFNG", "IL2", "IL4", "IL10", "IL12","IL15", "TGFB1", "TGFB3", "BMP2", "BMP4", "BMP6", "TNFA", "CXCL12","FGF2")) %>%
+  filter(Condition %in% c("CD8 \n HD", "CD8 \n pSS", "CD8 \n SLE", "CD19 \n HD", "CD19 \n pSS", "CD19 \n SLE")) %>%
+  ggplot(aes(Sample, Gene, fill = Activity)) +
+  geom_tile() +
+        scale_fill_gradientn(colours = c("#3d4da8", "#7673c0", "#e1daf1", "#ffffff", "#fcd6de", "#f5636c", "#ed2126"),limits =c(-20,20), breaks = c(-20,-10,0,10, 20), na.value = 'white')+
+  theme(text = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(size = 7), panel.border = element_rect(color = "black", fill = NA),
+        strip.text.y.left = element_text(angle = 0),
+        panel.spacing.x = unit(0.05, "lines"), panel.spacing.y = unit(0.05, "lines"),
+        legend.key.size = unit(0.25, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+  facet_grid(rows = vars(Condition), scales = "free", switch = "y") +
+  coord_flip()
+
+ggsave('.../results/P_01_CytoSig_CytokineActivity_mainFigure.pdf', plot = p, width = 2.8, height =
+        1.69, device = 'pdf')
+print(p)
+
+# code used for Supplemental Figure 4C
+p <- ggplot(combined_matrix_plot, aes(Sample, Gene, fill = Activity)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = c("#3d4da8", "#7673c0", "#e1daf1", "#ffffff", "#fcd6de", "#f5636c", "#ed2126"),limits =c(-20,20), breaks = c(-20,-10,0,10, 20), na.value = 'white')+
+  # ggtitle('Overview of Cytokine activity according to CytoSig') +
+  theme(text = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(size = 6), panel.border = element_rect(color = "black", fill = NA),
+        strip.text.y.left = element_text(angle = 0),
+        panel.spacing.x = unit(0.05, "lines"), panel.spacing.y = unit(0.05, "lines"),
+  legend.key.size = unit(0.5, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+  facet_grid(rows = vars(Condition), scales = "free", switch = "y") +
+  coord_flip()
+
+ggsave('.../results/P_01_CytoSig_CytokineActivity.pdf', plot = p, width = 7, height = 2.9, device = 'pdf')
+print(p)
+```
+
+```{r group_and_gene_comparison}
+
+#calculate the t test separately for sig higher and lower than helathy
+combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = as.factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  group_by(Celltype, Gene, Disease) %>%
+  get_summary_stats(Activity, type = "median_iqr")
+# then we need to calculate the wilcoxon test for each cell type vs the disease types
+
+pairwise_test_gene_group_less <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  group_by(Celltype, Gene) %>%
+  pairwise_t_test(data = ., formula = Activity ~ Disease, p.adjust.method = 'BH', paired = FALSE, comparisons = list(c("pSS", 'HD'), c("SLE", "HD")), alternative = 'less')
+pairwise_test_gene_group_less <- pairwise_test_gene_group_less %>%
+  mutate(Type = factor(rep('Sign. lower in disease vs. healthy', dim(pairwise_test_gene_group_less)[1])))
+
+pairwise_test_gene_group_greater <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  group_by(Celltype, Gene) %>%
+  pairwise_t_test(data = ., formula = Activity ~ Disease, p.adjust.method = 'BH', paired = FALSE, comparisons = list(c("pSS", 'HD'), c("SLE", "HD")), alternative = 'greater')
+pairwise_test_gene_group_greater <- pairwise_test_gene_group_greater %>%
+  mutate(Type = factor(rep('Sign. higher in disease vs. healthy', dim(pairwise_test_gene_group_greater)[1])))
+
+pairwise_test_gene_group <- pairwise_test_gene_group_greater %>%
+  bind_rows(pairwise_test_gene_group_less)
+
+```
+
+
+```{r}
+# code used for Figure 4F
+
+# what to include in the final picture ?
+remove_from_plot <- c('MCSF', 'HGF', 'VEGFA', 'EGF', 'CD40L', 'OSM')
+pairwise_test_gene_group$Gene <- revalue(pairwise_test_gene_group$Gene, c('Activin.A' = 'INHBA'))
+
+order <- c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA')
+
+pairwise_test_gene_group$Gene <- factor(pairwise_test_gene_group$Gene, levels = order)
+pairwise_test_gene_group <- pairwise_test_gene_group %>% drop_na()
+
+p <- pairwise_test_gene_group %>%
+  dplyr::mutate(Celltype = factor(Celltype, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA'))) %>%
+  dplyr::filter(!(Gene %in% remove_from_plot)) %>%
+  mutate('adj p-value (filtered)' = ifelse(p.adj <= 0.1, p.adj, NA)) %>%
+  filter(Type == 'Sign. lower in disease vs. healthy') %>%
+  ggplot(aes(Celltype, Gene, fill = `adj p-value (filtered)`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(color = "black", fill = NA),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(as.factor(group2)), scales = "free") +
+  theme(text = element_text(size = 7), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- pairwise_test_gene_group %>%
+  droplevels() %>%
+  dplyr::mutate(Celltype = factor(Celltype, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA'))) %>%
+  dplyr::filter(!(Gene %in% remove_from_plot)) %>%
+  mutate('adj p-value (filtered)' = ifelse(p.adj <= 0.1, p.adj, NA)) %>%
+  drop_na() %>%
+  #mutate(Pvalue = ifelse(Type == 'Sign. lower in disease vs. healthy', `adj p-value (filtered)` * -1, `adj p-value (filtered)`)) %>%
+  filter(Type == 'Sign. higher in disease vs. healthy')
+
+
+# then add to the previous object
+
+q <- p +
+  new_scale("fill") +
+  geom_tile(aes(Celltype, fct_rev(Gene), fill = `adj p-value (filtered)`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(as.factor(group2)), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.key.size = unit(0.25, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6), legend.spacing.y = unit(-0.1, "cm"))
+ggsave('.../results/P_01_CytoSig_Statistics2.pdf', plot = q, width = 5, height = 1.75, device = 'pdf')
+```
+
+
+# Same analysis for the steady state data
+
+```{r warning = F}
+files_dir <- '/home/lisbet/Data/2021_GinoRoche/input/20220518_CytoSig_H0/'
+all_files <- list.files(files_dir, pattern = 'R_01_Cytosig_*')
+names_files <- gsub(all_files, pattern = 'R_01_Cytosig_|.csv', replacement = '')
+# indicate which run
+list_results <- list()
+
+for (i in 1:length(all_files)) {
+  # catch the csv file
+  # important: receptors are in ROWS and ligands in COLUMNS
+  cytosig <- read.csv(paste0(files_dir, all_files[i]), row.names = 1) %>%
+    as.matrix() %>%
+    melt() %>%
+    set_colnames(c('Sample', 'Gene', 'Activity'))
+  # adjust the names of rows and cols which is used for merging by the ligands later
+  list_results[[i]] <- cytosig
+}
+# replace all NA with ZEROS
+# combined_matrix[is.na(combined_matrix)] <- 0
+# combined_matrix <- as.matrix(combined_matrix)
+# indicate the ligands
+# this was done since otherwise the order was strange in circos plot
+names(list_results) <- names_files
+
+combined_matrix <- melt(list_results)
+```
+
+Actually do the visualization.
+
+```{r, fig.width = 10, fig.height = 4}
+
+
+combined_matrix_plot <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate(Condition = factor(Condition,
+                            levels = c("CD4_HD", "CD4_pSS", "CD4_SLE", "CD8_HD", "CD8_pSS", "CD8_SLE", "CD16_HD", "CD16_pSS", "CD16_SLE", "CD19_HD", "CD19_pSS", "CD19_SLE"))) %>%
+  mutate(Condition = factor(gsub(pattern = '_', replacement = ' \n ', Condition),
+                            levels = c("CD4 \n HD", "CD4 \n pSS", "CD4 \n SLE", "CD8 \n HD", "CD8 \n pSS", "CD8 \n SLE", "CD16 \n HD", "CD16 \n pSS", "CD16 \n SLE", "CD19 \n HD", "CD19 \n pSS", "CD19 \n SLE"))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'Activin.A')))
+combined_matrix_plot$Gene <- revalue(combined_matrix_plot$Gene, c('Activin.A' = 'INHBA'))
+
+# code used for Figure 4G
+
+p <- combined_matrix_plot %>%
+  filter(Gene %in% c("IFN1", "IFNG", "IL2", "IL4", "IL10", "IL12", "IL15", "TGFB1", "TGFB3", "BMP2", "BMP4", "BMP6", "TNFA", "CXCL12", "FGF2")) %>%
+  filter(Condition %in% c("CD8 \n HD", "CD8 \n pSS", "CD8 \n SLE", "CD19 \n HD", "CD19 \n pSS", "CD19 \n SLE")) %>%
+  ggplot(aes(Sample, Gene, fill = Activity)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = c("#3d4da8", "#7673c0", "#e1daf1", "#ffffff", "#fcd6de", "#f5636c", "#ed2126"), limits = c(-20, 20), breaks = c(-20, -10, 0, 10, 20), na.value = 'white') +
+  theme(text = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(size = 7), panel.border = element_rect(color = "black", fill = NA),
+        strip.text.y.left = element_text(angle = 0),
+        panel.spacing.x = unit(0.05, "lines"), panel.spacing.y = unit(0.05, "lines"),
+        legend.key.size = unit(0.25, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+  facet_grid(rows = vars(Condition), scales = "free", switch = "y") +
+  coord_flip()
+
+ggsave('.../results/P_01_CytoSig_CytokineActivity_mainFigure_H0.pdf', plot = p, width = 2.8, height = 1.69, device =
+        'pdf')
+print(p)
+
+# code used for Supplementary Figure 4D
+p <- ggplot(combined_matrix_plot, aes(Sample, Gene, fill = Activity)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = c("#3d4da8", "#7673c0", "#e1daf1", "#ffffff", "#fcd6de", "#f5636c", "#ed2126"), limits = c(-20, 20), breaks = c(-20, -10, 0, 10, 20), na.value = 'white') +
+  # ggtitle('Overview of Cytokine activity according to CytoSig') +
+  theme(text = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(size = 6), panel.border = element_rect(color = "black", fill = NA),
+        strip.text.y.left = element_text(angle = 0),
+        panel.spacing.x = unit(0.05, "lines"), panel.spacing.y = unit(0.05, "lines"),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+  facet_grid(rows = vars(Condition), scales = "free", switch = "y") +
+  coord_flip()
+
+ggsave('.../results/P_01_CytoSig_CytokineActivity_H0.pdf', plot = p, width = 7, height = 2.9, device = 'pdf')
+print(p)
+```
+```{r group_and_gene_comparison}
+
+
+combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = as.factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  group_by(Celltype, Gene, Disease) %>%
+  get_summary_stats(Activity, type = "median_iqr")
+# then we need to calculate the wilcoxon test for each cell type vs the disease types
+
+pairwise_test_gene_group_less <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  mutate('Disease' = factor(Disease, levels = c("pSS", "SLE", "HD"))) %>%
+  group_by(Celltype, Gene) %>%
+  pairwise_wilcox_test(data = ., formula = Activity ~ Disease, p.adjust.method = 'BH', paired = FALSE, comparisons = list(c("pSS", "HD"), c("SLE", "HD")), alternative = 'less')
+pairwise_test_gene_group_less <- pairwise_test_gene_group_less %>%
+  mutate(Type = factor(rep('Sign. lower in disease vs. healthy', dim(pairwise_test_gene_group_less)[1])))
+
+pairwise_test_gene_group_greater <- combined_matrix %>%
+  set_colnames(c('Sample', 'Gene', 'variable', 'Activity', 'Condition')) %>%
+  mutate('Celltype' = as.factor(gsub(Condition, pattern = '\\_.*', replacement = ''))) %>%
+  mutate('Disease' = factor(gsub(Condition, pattern = '.*_', replacement = ''))) %>%
+  mutate('Disease' = factor(Disease, levels = c("pSS", "SLE", "HD"))) %>%
+  group_by(Celltype, Gene) %>%
+  pairwise_wilcox_test(data = ., formula = Activity ~ Disease, p.adjust.method = 'BH', paired = FALSE, comparisons = list(c("pSS", 'HD'), c("SLE", "HD")), alternative = 'greater')
+pairwise_test_gene_group_greater <- pairwise_test_gene_group_greater %>%
+  mutate(Type = factor(rep('Sign. higher in disease vs. healthy', dim(pairwise_test_gene_group_greater)[1])))
+
+pairwise_test_gene_group <- pairwise_test_gene_group_greater %>%
+  bind_rows(pairwise_test_gene_group_less)
+
+```
+
+
+```{r}
+
+#code used for Figure 4H
+
+#remove_from_plot <- c('MCSF', 'HGF', 'VEGFA', 'EGF', 'CD40L', 'OSM')
+pairwise_test_gene_group$Gene <- revalue(pairwise_test_gene_group$Gene, c('Activin.A' = 'INHBA'))
+
+order <- c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA')
+
+pairwise_test_gene_group$Gene <- factor(pairwise_test_gene_group$Gene, levels = order)
+pairwise_test_gene_group <- pairwise_test_gene_group %>% drop_na()
+
+p <- pairwise_test_gene_group %>%
+  dplyr::mutate(Celltype = factor(Celltype, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA'))) %>%
+  mutate('adj p-value (filtered)' = ifelse(p.adj <= 0.1, p.adj, NA)) %>%
+  filter(Type == 'Sign. lower in disease vs. healthy') %>%
+  ggplot(aes(Celltype, Gene, fill = `adj p-value (filtered)`)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(color = "black", fill = NA),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_tile() +
+  scale_fill_stepsn("DN in disease", colours = c('#3C4CA8', '#8C85CA', '#e0d8f0', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(as.factor(group1)), scales = "free") +
+  theme(text = element_text(size = 7), axis.text.x = element_text(angle = 90, hjust = 1))
+
+# plot sign higher interactions
+# -----------------------------------------------------------------------------------------------
+# first filter the data frame for higher interactions
+greater_df <- pairwise_test_gene_group %>%
+  droplevels() %>%
+  dplyr::mutate(Celltype = factor(Celltype, levels = c('CD19', 'CD16', 'CD8', 'CD4'))) %>%
+  dplyr::mutate(Gene = factor(Gene, levels = c('IFN1', 'IFNG', 'IFNL', 'IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL6', 'IL10', 'IL12', 'IL13', 'IL15', 'IL17A', 'IL21', 'IL22', 'IL27', 'IL36', 'LIF', 'GCSF', 'OSM', 'TGFB1', 'TGFB3', "BMP2", "BMP4", "BMP6", "TNFA", 'CD40L', "TRAIL", 'TWEAK', "LTA", 'CXCL12', 'VEGFA', 'EGF', 'GDF11', 'WNT3A', 'FGF2', 'GMCSF', 'BDNF', 'HGF', 'MCSF', 'NO', 'INHBA'))) %>%
+  mutate('adj p-value (filtered)' = ifelse(p.adj <= 0.1, p.adj, NA)) %>%
+  drop_na() %>%
+  filter(Type == 'Sign. higher in disease vs. healthy')
+
+
+# then add to the previous object
+
+q <- p +
+  new_scale("fill") +
+  geom_tile(aes(Celltype, fct_rev(Gene), fill = `adj p-value (filtered)`), data = greater_df) +
+  scale_fill_stepsn("UP in disease", colours = c('#ed1f24', '#f5788c', '#fcd4dc', '#FFFFFF'), breaks = c(0, 0.001, 0.05, 0.1), limits = c(0, 0.11), na.value = 'white') +
+  facet_grid(rows = vars(as.factor(group1)), scales = "free") +
+  coord_flip() +
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.key.size = unit(0.25, 'cm'),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6), legend.spacing.y = unit(-0.1, "cm"))
+ggsave('.../results/P_01_CytoSig_Statistics2_H0.pdf', plot = q, width = 5, height = 1.75, device = 'pdf')
+print(q)
+```
