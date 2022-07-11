@@ -1,6 +1,4 @@
-### 'gino.kwon@drfz.de' or 'gino.kwon@gmail.com' corresponded ###
-###
-###
+### 'gino.kwon@drfz.de' or 'gino.kwon@gmail.com'  ###
 
 library(plyr)
 library(EnsDb.Hsapiens.v86)
