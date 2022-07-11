@@ -1,4 +1,5 @@
 ### 'gino.kwon@drfz.de' or 'gino.kwon@gmail.com'  ###
+# Input data on the supplementary table, Online.
 
 library(plyr)
 library(EnsDb.Hsapiens.v86)
