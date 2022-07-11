@@ -24,7 +24,7 @@ TBA
 Systemic lupus erythematosus (SLE) and primary Sjögren’s syndrome (pSS) share clinical as well as pathogenic similarities.... *EMBARGO
 
 # Code available
-https://github.com/Gino-Kwon/Lupus/
+https://github.com/Kwon-DRFZ/Lupus.git
 
 # Main anlysis tool
 R version 3.8 or later (https://www.r-project.org/)
