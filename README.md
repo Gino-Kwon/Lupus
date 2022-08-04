@@ -3,7 +3,7 @@
 # Publification Link
 TBA
 
-# Contac information
+# Contact information
 1. Analysis: Gino Kwon
   gino.kwon@drfz.de || gino.kwon@gmail.com
 2. Cell-comunication: Lisa M. Steinhueur, Dr.
